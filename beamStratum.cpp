@@ -298,7 +298,7 @@ void beamStratum::readStratumFromPool(const string& jsonStr) {
 
 
 					std::stringstream json;
-					json << "{\"method\":\"mining.authorize\", \"params\":[\"" << apiKey << "\"], \"id\":" << nextId() << ",\"jsonrpc\":\"2.0\"}" << endl;
+					json << "{\"method\":\"mining.authorize\", \"params\":[\"" << apiKey << "\",\"\"], \"id\":" << nextId() << ",\"jsonrpc\":\"2.0\"}" << endl;
 					state = AUTHORIZING;
 					queueDataSend(json.str());	
 
