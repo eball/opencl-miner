@@ -21,7 +21,7 @@ inline vector<string> split(const string &s, char delim) {
     return split(s, delim, elems);
 }
 
-uint32_t cmdParser(vector<string> args, bool &poolMining, string &host, string &port, string &apiCred, bool &debug, bool &cpuMine, vector<int32_t> &devices ) {
+uint32_t cmdParser(vector<string> args, bool &poolMining, string &host, string &port, string &apiCred, bool &debug, bool &cpuMine, vector<int32_t> &devices, bool& force3G  ) {
 	bool hostSet = false;
 	bool apiSet = false;
 	
@@ -108,7 +108,7 @@ int main(int argc, char* argv[]) {
 	vector<int32_t> devices;
 	bool force3G = false;
 
-	uint32_t parsing = cmdParser(cmdLineArgs, poolMining, host, port, apiCred, debug, cpuMine, devices);
+	uint32_t parsing = cmdParser(cmdLineArgs, poolMining, host, port, apiCred, debug, cpuMine, devices, force3G);
 
 	cout << "-====================================-" << endl;
 	cout << "   BEAM Equihash 150/5 OpenCL miner   " << endl;
