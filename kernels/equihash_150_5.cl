@@ -3,7 +3,15 @@
 // Copyright 2018 The Beam Team	
 // Copyright 2018 Wilke Trei
 
-//#define PRINT 1
+#ifdef MEM3G
+#define bucketSize 8496
+#define r1Mask 0xFFF
+#else
+#define bucketSize 8672
+#define r1Mask 0x1FFF
+#endif
+
+#define tmp56 8496
 
 __kernel void clearCounter (
 		__global uint4 * counters,
@@ -122,14 +130,24 @@ ulong8 initBlake() {
 	return result;
 }
 
+#ifdef MEM3G
 __kernel void round0(
 		__global uint4 * outputLo,
 		__global uint  * counters,
 		ulong4 blockHeader,
 		ulong nonce,
-		uint allowGrp ) {
+		uint group ) {
 
-	__global uint2 * outputHi = (__global uint2 *) &outputLo[35651584];
+		__global uint2 * outputHi = (__global uint2*) &outputLo[bucketSize << 12];
+
+#else
+__kernel void round0(
+		__global uint4 * outputLo,
+		__global uint2 * outputHi,
+		__global uint  * counters,
+		ulong4 blockHeader,
+		ulong nonce ) {
+#endif
 
 	uint tId = get_global_id(0);
 
@@ -328,17 +346,32 @@ __kernel void round0(
 	output.s5 = (tId << 1) + tId; 
 	/*
 	  	We will sort the element into 2^13 
-		buckets of maximal size 8672
+		buckets of maximal size "bucketSize"
 	*/
 	bucket = output.s0 & 0x1FFF;	
-	if ((bucket >> 12) == allowGrp) { 			
+
+	#ifdef MEM3G
+	if ((bucket >> 12) == group) {
 		pos = atomic_inc(&counters[bucket]);
+
 		bucket &= 0xFFF;
 		output = shr_5(output,13);
 		
-		outputLo[bucket*8672+pos] = output.lo;
-		outputHi[bucket*8672+pos] = output.s45;
+		
+		if (pos < bucketSize) {
+			outputLo[bucket*bucketSize+pos] = output.lo;
+			outputHi[bucket*bucketSize+pos] = output.s45;
+		}
 	}
+	#else
+	pos = atomic_inc(&counters[bucket]);
+	output = shr_5(output,13);
+		
+	if (pos < bucketSize) {
+		outputLo[bucket*bucketSize+pos] = output.lo;
+		outputHi[bucket*bucketSize+pos] = output.s45;
+	}
+	#endif 
 
 		
 		
@@ -349,16 +382,30 @@ __kernel void round0(
 	output.s4 = ((v2[8] >> 24) | (v2[9] << 8)) & 0x3FFFFF;			// Only lower 22 bits 
 	output.s5++; 
 
-	bucket = output.s0 & 0x1FFF;				
-	if ((bucket >> 12) == allowGrp) { 			
+	bucket = output.s0 & 0x1FFF;
+				
+	 #ifdef MEM3G
+	if ((bucket >> 12) == group) {
 		pos = atomic_inc(&counters[bucket]);
+
 		bucket &= 0xFFF;
 		output = shr_5(output,13);
 		
-		outputLo[bucket*8672+pos] = output.lo;
-		outputHi[bucket*8672+pos] = output.s45;
+		if (pos < bucketSize) {
+			
+			outputLo[bucket*bucketSize+pos] = output.lo;
+			outputHi[bucket*bucketSize+pos] = output.s45;
+		}
 	}
-
+	#else
+	pos = atomic_inc(&counters[bucket]);
+	output = shr_5(output,13);
+		
+	if (pos < bucketSize) {
+		outputLo[bucket*bucketSize+pos] = output.lo;
+		outputHi[bucket*bucketSize+pos] = output.s45;
+	}
+	#endif 
 
 
 	output.s0 = (v2[9] >> 16) | (v2[10] << 16);  				// Third element are bytes 38 to 56
@@ -368,15 +415,30 @@ __kernel void round0(
 	output.s4 = ((v2[13] >> 16) | (v2[14] << 16)) & 0x3FFFFF;		// Only lower 22 bits 
 	output.s5++; 
 
-	bucket = output.s0 & 0x1FFF;				
-	if ((bucket >> 12) == allowGrp) { 			
+	bucket = output.s0 & 0x1FFF;
+				
+	#ifdef MEM3G
+	if ((bucket >> 12) == group) {
 		pos = atomic_inc(&counters[bucket]);
+
 		bucket &= 0xFFF;
 		output = shr_5(output,13);
 		
-		outputLo[bucket*8672+pos] = output.lo;
-		outputHi[bucket*8672+pos] = output.s45;
+		
+		if (pos < bucketSize) {
+			outputLo[bucket*bucketSize+pos] = output.lo;
+			outputHi[bucket*bucketSize+pos] = output.s45;
+		}
 	}
+	#else
+	pos = atomic_inc(&counters[bucket]);
+	output = shr_5(output,13);
+		
+	if (pos < bucketSize) {
+		outputLo[bucket*bucketSize+pos] = output.lo;
+		outputHi[bucket*bucketSize+pos] = output.s45;
+	}
+	#endif 
 }
 
 
@@ -411,18 +473,33 @@ void masking4(uint4 input0, uint id, __local uint* scratch, __local uint* tab , 
 	}
 }
 
-
+#ifdef MEM3G
 __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round1 (				// Round 1
 		__global uint4 * input0,
 		__global uint4 * output0,
 		__global uint2 * output1,
 		__global uint * counters,
-		uint allowGrp) {
+		uint inGrp) {
 
-	__global uint2 * input1 = (__global uint2 *) &input0[35651584];
+	__global uint2 * input1 = (__global uint2*) &input0[bucketSize << 12];
+	
+	uint lId = get_local_id(0);
+	uint grp = get_group_id(0); 
+
+	grp |= (inGrp << 15); 
+
+#else
+__kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round1 (				// Round 1
+		__global uint4 * input0,
+		__global uint2 * input1,
+		__global uint4 * output0,
+		__global uint2 * output1,
+		__global uint * counters) {
 
 	uint lId = get_local_id(0);
 	uint grp = get_group_id(0); 
+
+#endif 
 
 	uint bucket = grp >> 3;
 	uint mask = (grp & 7);
@@ -442,19 +519,9 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round1 (				// Ro
 	__global uint * inCounter = &counters[0];
 	__global uint * outCounter = &counters[8192];
 
-	#ifdef PRINT
-	if (get_global_id(0) == 8388608) {
-		uint sum=0;
-		for (uint i=0; i<8192; i++) {
-			sum += inCounter[i];			
-		}
-		printf("R0: %d %d %d %d \n", sum, inCounter[0], inCounter[1], inCounter[2]);
-	} 
-	#endif
-
 	if (lId == 0) {
 		iCNT[1] = 0;
-		iCNT[0] = min(inCounter[bucket],(uint) 8672);
+		iCNT[0] = min(inCounter[bucket],(uint) bucketSize);
 	} 
 
 	tab[lId] = 0xFFF;
@@ -462,7 +529,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round1 (				// Ro
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	uint ofs = (bucket & 0xFFF)*8672;	
+	uint ofs = (bucket & r1Mask)*bucketSize;	
 
 	masking6(input0[ofs+lId], input1[ofs+lId], &scratch[0], &tab[0], &iCNT[1], mask);
 	masking6(input0[ofs+256+lId], input1[ofs+256+lId], &scratch[0], &tab[0], &iCNT[1], mask);
@@ -500,7 +567,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round1 (				// Ro
 	masking6(input0[ofs+6912+lId], input1[ofs+6912+lId], &scratch[0], &tab[0], &iCNT[1], mask);
 
 	masking6(input0[ofs+7168+lId], input1[ofs+7168+lId], &scratch[0], &tab[0], &iCNT[1], mask);
-	masking6(input0[ofs+7424+lId], input1[ofs+7424+lId], &scratch[0], &tab[0], &iCNT[1], mask);
+	if ((lId + 7424) < iCNT[0]) masking6(input0[ofs+7424+lId], input1[ofs+7424+lId], &scratch[0], &tab[0], &iCNT[1], mask);
 	if ((lId + 7680) < iCNT[0]) masking6(input0[ofs+7680+lId], input1[ofs+7680+lId], &scratch[0], &tab[0], &iCNT[1], mask);
 	if ((lId + 7936) < iCNT[0]) masking6(input0[ofs+7936+lId], input1[ofs+7936+lId], &scratch[0], &tab[0], &iCNT[1], mask);
 
@@ -528,7 +595,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round1 (				// Ro
 		if (othPos < inLim) {
 			outputEl.s0 = scratch0[ownPos] ^ scratch0[othPos];	
 
-			buck = (outputEl.s0 >> 12) & 0x1FFF;
+			buck = (outputEl.s0 >> 12) & 0x1FFF;			
 			pos = atomic_inc(&outCounter[buck]);
 
 			outputEl.s1 = scratch1[ownPos] ^ scratch1[othPos];	
@@ -540,10 +607,12 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round1 (				// Ro
 			outputEl.s4 = scratch5[ownPos];
 			outputEl.s5 = scratch5[othPos];
 
-			pos += buck*8672;
-
-			output0[pos] = outputEl.lo;
-			output1[37224448 + pos] = outputEl.s45; 
+			if (pos < bucketSize) {
+				pos += buck*bucketSize;
+				output0[pos] = outputEl.lo;
+				output1[pos] = outputEl.s45; 
+			}
+			
 		} else { 
 			own = elem;
 			ownPos += 256;
@@ -582,19 +651,9 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round2 (				// Ro
 	__global uint * inCounter = &counters[8192];
 	__global uint * outCounter = &counters[16384];
 
-	#ifdef PRINT
-	if (get_global_id(0) == 0) {
-		uint sum=0;
-		for (uint i=0; i<8192; i++) {
-			sum += inCounter[i];			
-		}
-		printf("R1: %d %d %d %d \n", sum, inCounter[0], inCounter[1], inCounter[2]);
-	} 
-	#endif
-
 	if (lId == 0) {
 		iCNT[1] = 0;
-		iCNT[0] = min(inCounter[bucket],(uint) 8672);
+		iCNT[0] = min(inCounter[bucket],(uint) bucketSize);
 	} 
 
 	tab[lId] = 0xFFF;
@@ -602,7 +661,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round2 (				// Ro
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	uint ofs = bucket*8672;	
+	uint ofs = bucket*bucketSize;	
 
 	masking4(input0[ofs+lId], lId, &scratch[0], &tab[0], &iCNT[1], mask);
 	masking4(input0[ofs+256+lId], 256+lId, &scratch[0], &tab[0], &iCNT[1], mask);
@@ -693,8 +752,8 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round2 (				// Ro
 
 				outputEl.s2 |= (bucket >> 4) << 23; 
 
-				if (pos < 8672) {
-					pos += buck*8672;
+				if (pos < bucketSize) {
+					pos += buck*bucketSize;
 					output0[pos] = outputEl.lo;
 				}
 			}
@@ -707,48 +766,6 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round2 (				// Ro
 		ownPos = (cnt<40) ? ownPos : inLim;
 		cnt++;
 	} 
-}
-
-
-__kernel __attribute__((reqd_work_group_size(256, 1, 1))) void repack (				
-		__global uint2 * inputR1,
-		__global uint4 * inputR2,
-		__global uint4 * output) {
-
-	uint lId = get_local_id(0);
-	uint dataIn = get_global_id(0); 
-	uint grp = get_group_id(0); 
-
-	uint2 dataR1 = inputR1[37224448 + dataIn];
-	uint4 dataR2 = inputR2[dataIn];
-
-	__local uint sharedPack[768];
-
-	uint4 lPack;
-
-	lPack.s01 = dataR1;
-	lPack.s2  = dataR2.s3;
-	dataR2.s2  = dataR2.s2 >> 23;
-
-	lPack.s0 |= dataR2.s2 << 26;
-	dataR2.s2 = dataR2.s2 >> 6;
-	lPack.s1 |= dataR2.s2 << 26;
-
-	sharedPack[3*lId] = lPack.s0;
-	sharedPack[3*lId+1] = lPack.s1;
-	sharedPack[3*lId+2] = lPack.s2;
-
-	barrier(CLK_LOCAL_MEM_FENCE);
-
-	if (lId < 192) {
-		lPack.s0 = sharedPack[4*lId];
-		lPack.s1 = sharedPack[4*lId+1];
-		lPack.s2 = sharedPack[4*lId+2];
-		lPack.s3 = sharedPack[4*lId+3];
-
-		output[192*grp + lId] = lPack;
-	}
-
 }
 
 
@@ -777,19 +794,9 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round3 (				// Ro
 	__global uint * inCounter = &counters[16384];
 	__global uint * outCounter = &counters[24576];
 
-	#ifdef PRINT
-	if (get_global_id(0) == 0) {
-		uint sum=0;
-		for (uint i=0; i<8192; i++) {
-			sum += inCounter[i];			
-		}
-		printf("R2: %d %d %d %d \n", sum, inCounter[0], inCounter[1], inCounter[2]);
-	} 
-	#endif
-
 	if (lId == 0) {
 		iCNT[1] = 0;
-		iCNT[0] = min(inCounter[bucket],(uint) 8672);
+		iCNT[0] = min(inCounter[bucket],(uint) bucketSize);
 	} 
 
 	tab[lId] = 0xFFF;
@@ -797,7 +804,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round3 (				// Ro
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	uint ofs = bucket*8672;	
+	uint ofs = bucket*bucketSize;	
 
 	masking4(input0[ofs+lId], ofs+lId, &scratch[0], &tab[0], &iCNT[1], mask);
 	masking4(input0[ofs+256+lId], ofs+256+lId, &scratch[0], &tab[0], &iCNT[1], mask);
@@ -872,16 +879,17 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round3 (				// Ro
 
 				outputEl.lo = shr_4(outputEl.lo,25); 			// Shift away 25 bits
 
-				/*
+				/* 
 					Remaining bits: 150-3*25-13 = 62
 					Addresses of inputs will be stored in 3rd and 4th component
-				*/				
+					
+				*/
 
 				outputEl.s2 = scratch5[ownPos];
 				outputEl.s3 = scratch5[othPos];
 
-				if (pos < 8672) {
-					pos += buck*8672;
+				if (pos < bucketSize) {
+					pos += buck*bucketSize;
 					output0[pos] = outputEl.lo;
 				}
 			}
@@ -924,7 +932,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round4 (				// Ro
 
 	if (lId == 0) {
 		iCNT[1] = 0;
-		iCNT[0] = min(inCounter[bucket],(uint) 8672);
+		iCNT[0] = min(inCounter[bucket],(uint) bucketSize);
 	} 
 
 	tab[lId] = 0xFFF;
@@ -932,7 +940,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round4 (				// Ro
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	uint ofs = bucket*8672;	
+	uint ofs = bucket*bucketSize;	
 
 	masking4(input0[ofs+lId], ofs+lId, &scratch[0], &tab[0], &iCNT[1], mask);
 	masking4(input0[ofs+256+lId], ofs+256+lId, &scratch[0], &tab[0], &iCNT[1], mask);
@@ -970,7 +978,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round4 (				// Ro
 	masking4(input0[ofs+6912+lId], ofs+6912+lId, &scratch[0], &tab[0], &iCNT[1], mask);
 
 	masking4(input0[ofs+7168+lId], ofs+7168+lId, &scratch[0], &tab[0], &iCNT[1], mask);
-	masking4(input0[ofs+7424+lId], ofs+7424+lId, &scratch[0], &tab[0], &iCNT[1], mask);
+	if ((lId + 7424) < iCNT[0]) masking4(input0[ofs+7424+lId], ofs+7424+lId, &scratch[0], &tab[0], &iCNT[1], mask);
 	if ((lId + 7680) < iCNT[0]) masking4(input0[ofs+7680+lId], ofs+7680+lId, &scratch[0], &tab[0], &iCNT[1], mask);
 	if ((lId + 7936) < iCNT[0]) masking4(input0[ofs+7936+lId], ofs+7936+lId, &scratch[0], &tab[0], &iCNT[1], mask);
 
@@ -1016,8 +1024,8 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round4 (				// Ro
 				outputEl.s2 = scratch5[ownPos]; 
 				outputEl.s3 = scratch5[othPos]; 
 
-				if (pos < 8672) {
-					pos += buck*8672;
+				if (pos < bucketSize) {
+					pos += buck*bucketSize;
 					output0[pos] = outputEl.lo;
 				}
 			}
@@ -1060,7 +1068,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round5 (				// Ro
 
 	if (lId == 0) {
 		iCNT[1] = 0;
-		iCNT[0] = min(inCounter[bucket],(uint) 8672);
+		iCNT[0] = min(inCounter[bucket],(uint) bucketSize);
 	} 
 
 	tab[lId] = 0xFFF;
@@ -1068,7 +1076,7 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round5 (				// Ro
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	uint ofs = bucket*8672;	
+	uint ofs = bucket*bucketSize;	
 
 	masking4(input0[ofs+lId], ofs+lId, &scratch[0], &tab[0], &iCNT[1], mask);
 	masking4(input0[ofs+256+lId], ofs+256+lId, &scratch[0], &tab[0], &iCNT[1], mask);
@@ -1164,9 +1172,181 @@ __kernel __attribute__((reqd_work_group_size(256, 1, 1))) void round5 (				// Ro
 }
 
 
-__kernel __attribute__((reqd_work_group_size(16, 1, 1))) void combine (				// Combination round
+__kernel __attribute__((reqd_work_group_size(16, 1, 1))) void combine3G (				// Combination round
 		__global uint4 * inputR3,
 		__global uint * inputR12,
+		__global uint4 * inputR5,
+		__global uint * counters,
+		__global uint4 * results) {
+
+	 uint gId = get_group_id(0);
+	uint lId = get_local_id(0);
+
+	__global uint * inCounter = &counters[40960];
+	__global uint * outCounters = (__global uint*) &results[0];
+
+	__local uint scratch0[32];
+	__local uint scratch1[32];
+	__local uint ok[1];
+
+	if (gId < inCounter[0]) {
+		if (lId == 0) {
+			ok[0] = 0;
+
+			uint4 tmp;
+			tmp = inputR5[gId];
+
+			scratch1[4*lId+0] = tmp.s0;
+			scratch1[4*lId+1] = tmp.s1;
+			scratch1[4*lId+2] = tmp.s2;
+			scratch1[4*lId+3] = tmp.s3;
+		}
+
+		barrier(CLK_LOCAL_MEM_FENCE); 
+
+		if (lId < 4) {								// Read the output of Round 3
+			uint addr = scratch1[lId];
+			if (addr < (bucketSize << 13)) {
+				uint4 tmp = inputR3[addr];
+
+				scratch0[2*lId] = tmp.s2;	
+				scratch0[2*lId+1] = tmp.s3;	
+			}  else {
+				printf("R3 err \n");
+			}
+		}
+
+		barrier(CLK_LOCAL_MEM_FENCE); 
+
+		if (lId < 8) {								// Read the output of Round 2
+			uint addr = scratch0[lId];
+			if (addr < (bucketSize << 13)) {
+				uint4 tmp; 
+
+				tmp.s0 = inputR12[3*addr];
+				tmp.s1 = inputR12[3*addr+1];
+				tmp.s3 = inputR12[3*addr+2];
+
+				tmp.s0 = tmp.s0 >> 26;
+				tmp.s1 = tmp.s1 >> 26;
+
+				tmp.s2 = (tmp.s0 | (tmp.s1 << 6)) & 0x1FFF;
+
+				tmp.s0 = tmp.s3 & 0x3FFF;				// Unpack the representation
+				tmp.s1 = (tmp.s3 >> 14) & 0x3FFF;
+
+				tmp.s3 = tmp.s3 >> 28;
+
+				tmp.s3 |= (tmp.s2 << 4);
+				tmp.s3 *= bucketSize;
+
+				scratch1[2*lId]   = tmp.s0 + tmp.s3;	
+				scratch1[2*lId+1] = tmp.s1 + tmp.s3;					
+			} else {
+				printf("R2 err \n");
+			}	
+		}
+
+		barrier(CLK_LOCAL_MEM_FENCE); 	
+
+		if (lId < 16) {								// Read the output of Round 1
+			uint addr = scratch1[lId];
+			if (addr < (bucketSize << 13)) {
+				uint2 tmp;
+				tmp.s0 = inputR12[3*addr] & 0x3FFFFFF;
+				tmp.s1 = inputR12[3*addr+1] & 0x3FFFFFF; 
+
+				scratch0[2*lId]   = tmp.s0;	
+				scratch0[2*lId+1] = tmp.s1;	
+			}  else {
+				printf("R1 err \n");
+			}
+		}
+
+		barrier(CLK_LOCAL_MEM_FENCE); 					// Check for doublicate entries
+
+		for (uint i=0; i<32; i++) {
+			if (scratch0[2*lId]   == scratch0[i])   atomic_inc(&ok[0]);
+			if (scratch0[2*lId+1] == scratch0[i]) atomic_inc(&ok[0]);
+		}
+
+		barrier(CLK_LOCAL_MEM_FENCE);
+
+		if (ok[0] == 32) {						// Only entry to itself may be equal
+			uint addr;
+			if (lId == 0) addr = atomic_inc(&outCounters[0]);	
+
+			uint2 elem;
+			elem.s0 = scratch0[2*lId];
+			elem.s1 = scratch0[2*lId+1];
+
+			if (elem.s0 > elem.s1) elem.s01 = elem.s10;
+
+			scratch1[2*lId] = elem.s0;
+			scratch1[2*lId+1] = elem.s1;				// Elements sorted by 2 Elem
+
+			barrier(CLK_LOCAL_MEM_FENCE);				// Do the Equihash element sorting
+
+			uint2 tmp2;
+
+			tmp2.s0 = lId >> 1;
+			tmp2.s1 = (scratch1[4*tmp2.s0+0] > scratch1[4*tmp2.s0+2]) ? (lId ^ 0x1) : lId;
+
+			scratch0[2*lId]   = scratch1[2*tmp2.s1];
+			scratch0[2*lId+1] = scratch1[2*tmp2.s1+1];		// Elements sorted by 4 Elem
+
+			barrier(CLK_LOCAL_MEM_FENCE);
+
+			tmp2.s0 = lId >> 2;
+			tmp2.s1 = (scratch0[8*tmp2.s0+0] > scratch0[8*tmp2.s0+4]) ? (lId ^ 0x2) : lId;
+
+			scratch1[2*lId+0] = scratch0[2*tmp2.s1+0];		// Elements sorted by 8 Elem
+			scratch1[2*lId+1] = scratch0[2*tmp2.s1+1];
+
+			barrier(CLK_LOCAL_MEM_FENCE);
+
+			tmp2.s0 = lId >> 3;
+			tmp2.s1 = (scratch1[16*tmp2.s0+0] > scratch1[16*tmp2.s0+8]) ? (lId ^ 0x4) : lId;
+
+			scratch0[2*lId+0] = scratch1[2*tmp2.s1+0];		// Elements sorted by 16 Elem
+			scratch0[2*lId+1] = scratch1[2*tmp2.s1+1];
+
+			barrier(CLK_LOCAL_MEM_FENCE);
+
+			tmp2.s0 = lId >> 4;
+			tmp2.s1 = (scratch0[32*tmp2.s0+0] > scratch0[32*tmp2.s0+16]) ? (lId ^ 0x8) : lId;
+
+			scratch1[2*lId+0] = scratch0[2*tmp2.s1+0];		// Elements sorted by 32 Elem
+			scratch1[2*lId+1] = scratch0[2*tmp2.s1+1];
+
+			barrier(CLK_LOCAL_MEM_FENCE);					// All Elements sorted	
+
+			if (lId == 0) scratch0[0] = addr;
+
+			barrier(CLK_LOCAL_MEM_FENCE);
+
+			addr = scratch0[0];
+
+			if ((addr < 10) && (lId < 8)) {
+				uint4 tmp;
+				tmp.s0 = scratch1[4*lId];
+				tmp.s1 = scratch1[4*lId+1];
+				tmp.s2 = scratch1[4*lId+2];
+				tmp.s3 = scratch1[4*lId+3];
+
+				results[1 + 8*addr + lId] = tmp;
+			}
+
+		} 
+	}  
+}
+
+
+__kernel __attribute__((reqd_work_group_size(16, 1, 1))) void combine (				// Combination round
+		__global uint4 * inputR2,
+		__global uint4 * inputR3,
+		__global uint4 * inputR4,
+		__global uint2 * inputR1,		
 		__global uint4 * inputR5,
 		__global uint * counters,
 		__global uint4 * results) {
@@ -1198,7 +1378,7 @@ __kernel __attribute__((reqd_work_group_size(16, 1, 1))) void combine (				// Co
 
 		if (lId < 4) {								// Read the output of Round 3
 			uint addr = scratch1[lId];
-			if (addr < 71041024) {
+			if (addr < (bucketSize << 13)) {
 				uint4 tmp = inputR3[addr];
 				
 				scratch0[2*lId] = tmp.s2;	
@@ -1210,25 +1390,17 @@ __kernel __attribute__((reqd_work_group_size(16, 1, 1))) void combine (				// Co
 
 		if (lId < 8) {								// Read the output of Round 2
 			uint addr = scratch0[lId];
-			if (addr < 71041024) {
-				uint4 tmp; 
-
-				tmp.s0 = inputR12[3*addr];
-				tmp.s1 = inputR12[3*addr+1];
-				tmp.s3 = inputR12[3*addr+2];
-
-				tmp.s0 = tmp.s0 >> 26;
-				tmp.s1 = tmp.s1 >> 26;
-
-				tmp.s2 = (tmp.s0 | (tmp.s1 << 6)) & 0x1FFF;
+			if (addr < (bucketSize << 13)) {
+				uint4 tmp = inputR2[addr];
 
 				tmp.s0 = tmp.s3 & 0x3FFF;				// Unpack the representation
 				tmp.s1 = (tmp.s3 >> 14) & 0x3FFF;
 
+				tmp.s2 = tmp.s2 >> 23;
 				tmp.s3 = tmp.s3 >> 28;
 
 				tmp.s3 |= (tmp.s2 << 4);
-				tmp.s3 *= 8672;
+				tmp.s3 *= bucketSize;
 				
 				scratch1[2*lId]   = tmp.s0 + tmp.s3;	
 				scratch1[2*lId+1] = tmp.s1 + tmp.s3;	
@@ -1239,10 +1411,8 @@ __kernel __attribute__((reqd_work_group_size(16, 1, 1))) void combine (				// Co
 
 		if (lId < 16) {								// Read the output of Round 1
 			uint addr = scratch1[lId];
-			if (addr < 71041024) {
-				uint2 tmp;
-				tmp.s0 = inputR12[3*addr] & 0x3FFFFFF;
-				tmp.s1 = inputR12[3*addr+1] & 0x3FFFFFF; 
+			if (addr < (bucketSize << 13)) {
+				uint2 tmp = inputR1[addr];
 				
 				scratch0[2*lId]   = tmp.s0;	
 				scratch0[2*lId+1] = tmp.s1;	
@@ -1325,4 +1495,57 @@ __kernel __attribute__((reqd_work_group_size(16, 1, 1))) void combine (				// Co
 			
 		} 
 	}  
+}
+
+
+__kernel __attribute__((reqd_work_group_size(256, 1, 1))) void repack (				
+		__global uint2 * inputR1,
+		__global uint4 * inputR2,
+		__global uint4 * output) {
+
+	uint lId = get_local_id(0);
+	uint dataIn = get_global_id(0); 
+	uint grp = get_group_id(0); 
+
+	uint2 dataR1 = inputR1[dataIn];
+	uint4 dataR2 = inputR2[dataIn];
+
+	dataR1.s0 &= 0x3FFFFFF;
+	dataR1.s1 &= 0x3FFFFFF;
+
+	__local uint sharedPack[768];
+
+	uint4 lPack;
+	lPack.s01 = dataR1;
+	lPack.s2  = dataR2.s3;
+	dataR2.s2  = dataR2.s2 >> 23;
+
+	
+
+	lPack.s0 |= dataR2.s2 << 26;
+	dataR2.s2 = dataR2.s2 >> 6;
+	lPack.s1 |= dataR2.s2 << 26;
+
+	sharedPack[3*lId] = lPack.s0;
+	sharedPack[3*lId+1] = lPack.s1;
+	sharedPack[3*lId+2] = lPack.s2;
+
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+	if (lId < 192) {
+		lPack.s0 = sharedPack[4*lId];
+		lPack.s1 = sharedPack[4*lId+1];
+		lPack.s2 = sharedPack[4*lId+2];
+		lPack.s3 = sharedPack[4*lId+3];
+
+		output[192*grp + lId] = lPack;
+	}
+
+}
+
+__kernel __attribute__((reqd_work_group_size(256, 1, 1))) void move(
+		__global uint4 * input,
+		__global uint4 * output) {
+	uint gId = get_global_id(0);
+	output[gId] = input[gId];
 }

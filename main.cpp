@@ -64,6 +64,10 @@ uint32_t cmdParser(vector<string> args, bool &poolMining, string &host, string &
 				}
 			}
 
+			if (args[i].compare("--force3G")  == 0) {
+				force3G = true;
+			}
+
 			if (args[i].compare("--enable-cpu")  == 0) {
 				cpuMine = true;
 			}
@@ -73,7 +77,7 @@ uint32_t cmdParser(vector<string> args, bool &poolMining, string &host, string &
 			}
 	
 			if (args[i].compare("--version")  == 0) {
-				cout << "1.0 Initial release for BEAM main network (Jan 3rd 2019)" << endl;
+				cout << "1.0.63 for BEAM main network (Jan 6th 2019)" << endl;
 				exit(0);
 			}
 		}
@@ -102,12 +106,13 @@ int main(int argc, char* argv[]) {
 	bool useTLS = true;
 	bool poolMining = false;
 	vector<int32_t> devices;
+	bool force3G = false;
 
 	uint32_t parsing = cmdParser(cmdLineArgs, poolMining, host, port, apiCred, debug, cpuMine, devices);
 
 	cout << "-====================================-" << endl;
 	cout << "   BEAM Equihash 150/5 OpenCL miner   " << endl;
-	cout << "          v1.0, Jan 3rd 2019          " << endl;
+	cout << "        v1.0.63, Jan 6th 2019         " << endl;
 	cout << "-====================================-" << endl;
 
 	if (parsing != 0) {
@@ -120,11 +125,13 @@ int main(int argc, char* argv[]) {
 		}
 
 		cout << "Parameters: " << endl;
-		cout << " --help / -h 							Showing this message" << endl;
+		cout << " --help / -h 			Showing this message" << endl;
 		cout << " --server | --pool <server>:<port>		The BEAM stratum server and port to connect to (required)" << endl;
-		cout << " --key <key>							The BEAM stratum server API key (required)" << endl;
-		cout << " --devices <numbers>					A comma seperated list of devices that should be used for mining (default: all in system)" << endl; 
-		cout << " --enable-cpu							Enable mining on OpenCL CPU devices" << endl;
+		cout << " --key <key>			The BEAM stratum server API key (required)" << endl;
+		cout << " --devices <numbers>		A comma seperated list of devices that should be used for mining (default: all in system)" << endl; 
+		cout << " --enable-cpu			Enable mining on OpenCL CPU devices" << endl;
+		cout << " --force3G			Force miner to use max 3G for all installed GPUs" << endl;
+		cout << " --version			Prints the version number" << endl;
 		exit(0);
 	}
 
@@ -136,7 +143,7 @@ int main(int argc, char* argv[]) {
 	cout << "Setup OpenCL devices:" << endl;
 	cout << "=====================" << endl;
 	
-	myClHost.setup(&myStratum, devices, cpuMine);
+	myClHost.setup(&myStratum, devices, cpuMine, force3G);
 
 	cout << endl;
 	cout << "Waiting for work from stratum:" << endl;
