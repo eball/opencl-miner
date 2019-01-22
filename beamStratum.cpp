@@ -432,4 +432,3 @@ beamStratum::beamStratum(string hostIn, string portIn, string apiKeyIn, bool deb
 }
 
 } // End namespace beamMiner
-
