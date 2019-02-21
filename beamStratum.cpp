@@ -70,6 +70,7 @@ void beamStratum::writeHandler(const boost::system::error_code& err) {
 
 // Called by main() function, starts the stratum client thread
 void beamStratum::startWorking(){
+	t_start = time(NULL);
 	std::thread (&beamStratum::connect,this).detach();
 }
 
@@ -237,6 +238,13 @@ void beamStratum::readStratumFromNode(const pt::iptree& jsonTree) {
 			// Get the target difficulty
 			uint32_t stratDiff =  jsonTree.get<uint32_t>("difficulty");
 			powDiff = beam::Difficulty(stratDiff);
+
+			// Nicehash support
+			if (jsonTree.count("nonceprefix") > 0) {
+				string poolNonceStr = jsonTree.get<string>("nonceprefix");
+				poolNonce = parseHex(poolNonceStr);
+			}
+
 			updateMutex.unlock();	
 
 			cout << "New work received with id " << workId << " at difficulty " << powDiff.ToFloat() << endl;	
