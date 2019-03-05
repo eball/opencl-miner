@@ -9,12 +9,12 @@ Copyright 2018 Wilke Trei
 # Usage
 ## One Liner Examples
 ```
-Linux: ./beamMiner --server <hostName>:<portNumer> --key <apiKey> --devices <deviceList>
-Windows: ./beamMiner --server <hostName>:<portNumer> --key <apiKey> --devices <deviceList>
+Linux: ./beamMiner --server | --pool <hostName>:<portNumer> --key <apiKey> --devices <deviceList>
+Windows: ./beamMiner --server | --pool <hostName>:<portNumer> --key <apiKey> --devices <deviceList>
 ```
 
 ## Parameters
-### --server 
+### --server | --pool (slushpool protocol)
 Passes the address and port of the node the miner will mine on to the miner.
 The server address can be an IP or any other valid server address.- For example when the node
 is running on the same computer and listens on port 17000 then use --server localhost:17000
